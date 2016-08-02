@@ -1,4 +1,4 @@
-# bitbox-noisemaker
+# bitbox-noisebox
 another music thingy for the bitbox
 
 ## add music to the library
