@@ -266,7 +266,7 @@ void font_init()
     memcpy(font, font_cache, sizeof(font_cache));
 }
 
-void font_render_line_doubled(const uint8_t *text, int x, int y, uint16_t color_fg, uint16_t color_bg)
+int font_render_line_doubled(const uint8_t *text, int x, int y, uint16_t color_fg, uint16_t color_bg)
 {
     #ifdef EMULATOR
     if (y < 0 || y >= 8)
@@ -285,6 +285,7 @@ void font_render_line_doubled(const uint8_t *text, int x, int y, uint16_t color_
     uint32_t color_choice[2] = { color_bg|(color_bg<<16), color_fg|(color_fg<<16) };
     --text;
     int c;
+    int characters = 0;
     while ((c = *(++text)))
     {
         uint8_t row = (font[c] >> y) & 15;
@@ -294,5 +295,7 @@ void font_render_line_doubled(const uint8_t *text, int x, int y, uint16_t color_
             row >>= 1;
         }
         *(++dst) = color_choice[0];
+        ++characters;
     }
+    return characters;
 }

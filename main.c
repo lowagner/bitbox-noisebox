@@ -5,41 +5,30 @@
 #include <stdio.h>
 #include <string.h>
 
-uint16_t color_ring[256] CCM_MEMORY;
-uint8_t color_ring_begin CCM_MEMORY;
+uint64_t song_pos CCM_MEMORY;
+uint16_t color_ring[32] CCM_MEMORY;
 uint8_t color_ring_end CCM_MEMORY;
 uint8_t message_ring[16][32] CCM_MEMORY;
 uint8_t message_ring_end CCM_MEMORY;
-
 uint8_t stripe CCM_MEMORY;
-uint8_t sound_initialized CCM_MEMORY;
 
-static inline int push_color(uint16_t c)
+static inline void push_color(uint16_t c)
 {
-    if (((color_ring_end+1)&255) == color_ring_begin)
-        return 1;
-    color_ring[color_ring_end++] = c;
-    return 0;
+    #ifndef NO_VGA
+    if (++color_ring_end >= 32)
+        color_ring_end = 0;
+    color_ring[color_ring_end] = c;
+    #endif
 }
 
-static inline int pop_color()
+static inline void push_message(const char *c)
 {
-    if (color_ring_begin == color_ring_end)
-        return -1;
-    return color_ring[color_ring_begin++];
-}
-
-static inline int color_ring_empty()
-{
-    return color_ring_begin == color_ring_end;
-}
-
-static inline int push_message(const char *c)
-{
+    #ifndef NO_VGA
     if (++message_ring_end >= 16)
         message_ring_end = 0;
     strncpy((char *)message_ring[message_ring_end], c, 31);
     message_ring[message_ring_end][31] = 0; // ensure null termination
+    #endif
 }
 
 uint8_t music_on CCM_MEMORY;
@@ -75,18 +64,25 @@ void get_file_index()
     if (f_open(&fat_file, "SONGNOSE.TXT", FA_READ | FA_OPEN_EXISTING) != FR_OK)
     {
         file_index = 0;
-        message("error opening SONGNOSE.TXT file\n");
+        push_message("error opening SONGNOSE.TXT");
         push_color(RGB(255,150,0));
         return;
     }
     if (f_read(&fat_file, &file_index, sizeof(file_index), &bytes_get) != FR_OK ||
         bytes_get != sizeof(file_index))
     {
-        message("error reading SONGNOSE.TXT file\n");
+        push_message("error reading SONGNOSE.TXT");
         push_color(RGB(255,0,0));
         file_index = 0;
     }
-    message("got file_index %d\n", file_index);
+    push_message(" file_index: ");
+    int digits = file_index;
+    message_ring[message_ring_end][21] = 0;
+    for (int i=20; i>=14; --i)
+    {
+        message_ring[message_ring_end][i] = digits%10;
+        digits/=10;
+    }
     f_close(&fat_file);
 }
 
@@ -113,7 +109,6 @@ void set_file_index(int skip)
     }
     f_close(&fat_file);
 }
-
 
 static int cmp(const void *p1, const void *p2){
     return strcmp( (char * const ) p1, (char * const ) p2);
@@ -143,13 +138,9 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
         fn = fno.fname;
         if (res != FR_OK || fno.fname[0] == 0) break;  /* Break on error or end of dir */
         /* Ignore dot entry and dirs */
-        if (fn[0] == '.')
-        {
-            message("this was a dot\n");
-            continue;
-        }
+        if (fn[0] == '.') continue;
         push_message("check: ");
-        strcpy(&message_ring[message_ring_end][7], fn);
+        strcpy((char *)&message_ring[message_ring_end][7], fn);
         if (fno.fattrib & AM_DIR) 
         {
             push_message(" was a directory\n");
@@ -174,15 +165,14 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
     f_closedir(&dir);
     message("got to end with count %d\n", file_count);
     // check if we looped more than once:
-    int original_file_count = file_count;
     if (file_count > MAX_FILES)
     {
         message(" we were aiming at index [%d, +64)\n", file_index);
         file_count = MAX_FILES;
     }
+    set_file_index(file_index + file_count/2);
     if (!file_count)
         return;
-    set_file_index((file_index + file_count/2)%original_file_count);
     file_index %= file_count;
 
     // sort it
@@ -196,6 +186,7 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
 void load_next_file()
 {
     load_next_file_please = 0;
+    song_pos = 0;
 
     music_on = 0;
     if (!mount_ok)
@@ -212,7 +203,13 @@ void load_next_file()
     }
     
     if (file_index >= file_count)
+    {
+        // stop after reaching end of playlist
+        push_color(RGB(255,0,0));
+        // but reset in case pressing button again
         file_index = 0;
+        return;
+    }
     push_color(RGB(0,255,255));
     message("opening the %d music, %s: ", file_index, filenames[file_index]);
     push_message("file: ");
@@ -240,14 +237,12 @@ void game_init()
     {
         push_color(RGB(255,255,255));
         push_message("mount failure");
-        sound_initialized = 1;
         return;
     }
     push_color(RGB(100,100,100));
     push_message("mount ok");
     mount_ok = 255;
     list_music();
-    sound_initialized = 1;
 }
 
 void game_frame()
@@ -267,53 +262,27 @@ void graph_frame()
 
 void graph_line() 
 {
+    static int line_length = 0;
     if (vga_odd)
         return;
-    //const uint8_t max_color = 8*(music_on+1);
-    //color = ((rand()%max_color)<<10)|((rand()%max_color)<<5)|(rand()%max_color);
-    if (color_ring_empty())
-    {
-        memset(draw_buffer, 151, 2*320);
-        goto maybe_write_stuff;
-    }
-    // check if there is more than one object in the ring:
-    if (((color_ring_begin+1)&255) != color_ring_end)
-    {
-        if (vga_line/2 == 0)
-        {
-            uint16_t old_color = color_ring[color_ring_begin];
-            uint16_t *dst = &draw_buffer[stripe*10 - 1];
-            for (int i=0; i<10; ++i)
-                *++dst = old_color;
-        }
-        else if (vga_line == 240-1)
-        {
-            stripe = (stripe+1)%32;
-            pop_color();
-        }
-        goto maybe_write_stuff;
-    }
-    // only one color remains
-    uint16_t color = color_ring[color_ring_begin];
-    draw_buffer[stripe*10] = RGB(255,255,255);
-    draw_buffer[stripe*10+1] = RGB(255,255,255);
+    uint16_t color = color_ring[color_ring_end];
+    uint16_t stripe = 10*color_ring_end;
+    draw_buffer[stripe] = RGB(255,255,255);
     if ((vga_line/2)%16 == 0 && vga_frame % 16 == 0)
-        draw_buffer[stripe*10 + 2 + rand()%6] = color;
-    draw_buffer[stripe*10+8] = RGB(255,255,255);
-    draw_buffer[stripe*10+9] = RGB(255,255,255);
+        draw_buffer[stripe + 1 + rand()%8] = color;
+    draw_buffer[stripe+9] = RGB(255,255,255);
 
-    maybe_write_stuff:
     if (vga_line < 48 || vga_line >= 48+16*10)
         return;
     int line = (vga_line-48);
     int internal_line = line%10;
     line /= 10;
     if (internal_line < 8)
-        font_render_line_doubled(message_ring[line], 16, internal_line, 
+        line_length = font_render_line_doubled(message_ring[line], 16, internal_line, 
             line == message_ring_end ? RGB(255,0,0) : 65535, 
         0);
     else
-        memset(&draw_buffer[16], 0, (320-32)*2);
+        memset(&draw_buffer[16], 0, line_length*10*2);
 }
 #endif
 
@@ -346,22 +315,30 @@ static inline uint16_t gen_sample()
 
 void game_snd_buffer(uint16_t *buffer, int len) 
 {
-    if (!sound_initialized)
-        return;
-
-    static uint16_t press=0;
+    static uint32_t press=0;
+    static uint32_t seek_forward=0;
     if (press)
     {
         press = button_state();
         if (!press)
         {
             // button release, do something fancier for holding down the button
+            message("got hold %u\n", press_hold);
             if (music_on)
             {
-                music_on = 0;
-                message("pre-empted\n");
-                push_color(RGB(255,150,100));
-                f_close(&fat_file);
+                if (press_hold < 10)
+                {
+                    music_on = 0;
+                    message("pre-empted\n");
+                    push_color(RGB(255,150,100));
+                    f_close(&fat_file);
+                    load_next_file_please = 1;
+                }
+                else
+                {
+                    push_color(RGB(200,100,0));
+                    seek_forward = 512*(press_hold + press_hold*press_hold);
+                }
             }
             else
             {
@@ -399,6 +376,12 @@ void game_snd_buffer(uint16_t *buffer, int len)
     }
     int remaining_bytes = 2*len;
     const uint16_t *buffer_end = &buffer[len];
+    if (seek_forward)
+    {
+        song_pos += seek_forward; 
+        f_lseek(&fat_file, song_pos);
+        seek_forward = 0;
+    }
     while (remaining_bytes > 0)
     {
         size_t bytes_to_read;
@@ -416,7 +399,7 @@ void game_snd_buffer(uint16_t *buffer, int len)
         UINT bytes_read;
         if (f_read(&fat_file, buffer, bytes_to_read, &bytes_read) != FR_OK)
         {
-            message("file not read well\n");
+            push_message(" file not read well");
             push_color(RGB(255,0,255));
             f_close(&fat_file);
             music_on = 0;
@@ -424,16 +407,17 @@ void game_snd_buffer(uint16_t *buffer, int len)
         }
         else if (bytes_read != bytes_to_read)
         {
-            message("file ended\n");
+            push_message(" file ended.");
             push_color(RGB(255,0,0));
             buffer += bytes_to_read/2;
             while (buffer < buffer_end)
                 *buffer++ = 128;
             f_close(&fat_file);
-            music_on = 0;
+            load_next_file_please = 1;
             return;
         }
         buffer += bytes_to_read/2;
     }
+    song_pos += 2*len;
     return;
 }

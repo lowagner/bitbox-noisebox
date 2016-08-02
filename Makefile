@@ -1,6 +1,6 @@
 # DO NOT FORGET to define BITBOX environment variable 
 
-#NO_VGA = 1 # comment out to allow graphics
+#NO_VGA = 1 # comment out to allow graphics, do a "make clean" to reset.
 USE_SDCARD = 1 # comment out to get no wav files
 
 NAME = noisebox
