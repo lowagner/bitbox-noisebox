@@ -49,8 +49,8 @@ uint32_t press_hold CCM_MEMORY;
 
 #define MAX_READ_BYTES 512
 
-FATFS fat_fs CCM_MEMORY;
-FIL fat_file CCM_MEMORY;
+FATFS fat_fs;
+FIL fat_file;
 uint8_t mount_ok CCM_MEMORY;
 uint8_t load_next_file_please CCM_MEMORY;
 int file_count CCM_MEMORY;
@@ -240,6 +240,7 @@ void game_init()
     {
         push_color(RGB(255,255,255));
         push_message("mount failure");
+        sound_initialized = 1;
         return;
     }
     push_color(RGB(100,100,100));
