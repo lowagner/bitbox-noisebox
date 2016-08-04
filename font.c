@@ -272,16 +272,16 @@ int font_render_line_doubled(const uint8_t *text, int x, int y, uint16_t color_f
     if (y < 0 || y >= 8)
     {
         message("got too big a line count for text (%s):  %d\n", text, y);
-        return;
+        return 0;
     }
     if (x < 0 || x + 10*strlen((char *)text) >= 320)
     {
         message("text (%s) goes off screen!\n", text);
-        return;
+        return 0;
     }
     #endif
     y = ((y/2))*4; // make y now how much to shift
-    uint32_t *dst = draw_buffer + x/2 - 1;
+    uint32_t *dst = (uint32_t *)draw_buffer + x/2 - 1;
     uint32_t color_choice[2] = { color_bg|(color_bg<<16), color_fg|(color_fg<<16) };
     --text;
     int c;
