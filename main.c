@@ -5,8 +5,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MAX_FILES 64 // choose whatever you like!
+#define MAX_FILES 4096 
+#define PLAY_TIME (45*957021ul) // approx 45 minutes.  choose whatever you like!
 
+uint64_t time_passed CCM_MEMORY;
 uint64_t song_pos CCM_MEMORY;
 #ifndef NO_VGA
 uint16_t color_ring[32] CCM_MEMORY;
@@ -14,6 +16,7 @@ uint8_t color_ring_end CCM_MEMORY;
 uint8_t message_ring[16][32] CCM_MEMORY;
 uint8_t message_ring_end CCM_MEMORY;
 uint8_t stripe CCM_MEMORY;
+uint8_t last_song CCM_MEMORY;
 
 static inline void push_color(uint16_t c)
 {
@@ -41,9 +44,9 @@ uint32_t press_hold CCM_MEMORY;
 FATFS fat_fs;
 FIL fat_file;
 uint8_t mount_ok CCM_MEMORY;
-uint8_t load_next_file_please CCM_MEMORY;
 int file_count CCM_MEMORY;
 int file_index CCM_MEMORY;
+int starting_file_index CCM_MEMORY;
 char filenames[MAX_FILES][13];
 
 #ifdef EMULATOR
@@ -83,8 +86,8 @@ void get_file_index()
     #ifndef NO_VGA
     int digits = file_index;
     push_message(" file_index: ");
-    message_ring[message_ring_end][21] = 0;
-    for (int i=20; i>=14; --i)
+    message_ring[message_ring_end][22] = 0;
+    for (int i=21; i>=14; --i)
     {
         message_ring[message_ring_end][i] = digits%10;
         digits/=10;
@@ -146,7 +149,6 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
         #endif
         return;
     }
-    int looped = 0;
     for (file_count=0;;) 
     {
         res = f_readdir(&dir, &fno);                   /* Read a directory item */
@@ -171,42 +173,26 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
             #ifndef NO_VGA
             push_message(" got w8v.");
             #endif
-            int buffer_index = file_count % MAX_FILES;
-            if (buffer_index == file_index % MAX_FILES)
-            {
-                if (looped == 1 + file_index/MAX_FILES)
-                    break;
-                else
-                    ++looped;
-            }
-            strcpy(filenames[buffer_index],fn);
-            ++file_count;
+            strcpy(filenames[file_count++],fn);
         }
     }
     f_closedir(&dir);
     message("got to end with count %d\n", file_count);
-    // check if we looped more than once:
-    if (file_count > MAX_FILES)
-    {
-        message(" we were aiming at index [%d, +64)\n", file_index);
-        file_count = MAX_FILES;
-    }
-    set_file_index(file_index + file_count/2);
     if (!file_count)
         return;
     file_index %= file_count;
+    starting_file_index = file_index;
 
     // sort it
     qsort(filenames, file_count, 13, cmp);
     for (int i=0; i<file_count; ++i)
-    {
         message("got filename %s\n", filenames[i]);
-    }
 }
 
 void load_next_file()
 {
-    load_next_file_please = 0;
+    push_color(RGB(100,100,100));
+    push_message("requesting next file");
     song_pos = 0;
 
     music_on = 0;
@@ -226,17 +212,23 @@ void load_next_file()
         #endif
         return;
     }
-    
-    if (file_index >= file_count)
+    message("got play time %lu / %lu\n", time_passed, PLAY_TIME);
+    if (time_passed >= PLAY_TIME)
     {
+        time_passed = 0;
         // stop after reaching end of playlist
         #ifndef NO_VGA
         push_color(RGB(255,0,0));
         #endif
+        // move the file index ahead
+        set_file_index(file_index);
         // but reset in case pressing button again
-        file_index = 0;
+        file_index = starting_file_index;
         return;
     }
+    
+    if (file_index >= file_count)
+        file_index = 0;
     message("opening the %d music, %s: ", file_index, filenames[file_index]);
     #ifndef NO_VGA
     push_color(RGB(0,255,255));
@@ -260,7 +252,9 @@ void load_next_file()
 
 void game_init()
 {
+    time_passed = 0;
     font_init();
+    last_song = 0;
     #ifndef NO_VGA
     message_ring_end = 15;
     stripe = 0;
@@ -286,14 +280,6 @@ void game_init()
 
 void game_frame()
 {
-    if (load_next_file_please)
-    {
-        #ifndef NO_VGA
-        push_color(RGB(100,100,100));
-        push_message("requesting next file");
-        #endif
-        load_next_file();
-    }
 }
 
 #ifndef NO_VGA
@@ -369,7 +355,7 @@ void game_snd_buffer(uint16_t *buffer, int len)
                     push_color(RGB(255,150,100));
                     #endif
                     f_close(&fat_file);
-                    load_next_file_please = 1;
+                    load_next_file();
                 }
                 else
                 {
@@ -381,7 +367,7 @@ void game_snd_buffer(uint16_t *buffer, int len)
             }
             else
             {
-                load_next_file_please = 1;
+                load_next_file();
             }
             press_hold = 0;
         }
@@ -456,15 +442,17 @@ void game_snd_buffer(uint16_t *buffer, int len)
             push_message(" file ended.");
             push_color(RGB(255,0,0));
             #endif
-            buffer += bytes_to_read/2;
+            buffer += bytes_read/2;
             while (buffer < buffer_end)
-                *buffer++ = 128;
+                *buffer++ = 128 | (128<<8);
             f_close(&fat_file);
-            load_next_file_please = 1;
+            music_on = 0;
+            load_next_file();
             return;
         }
         buffer += bytes_to_read/2;
     }
     song_pos += 2*len;
+    time_passed += len/2;
     return;
 }
