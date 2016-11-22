@@ -10,13 +10,13 @@
 
 uint64_t time_passed CCM_MEMORY;
 uint64_t song_pos CCM_MEMORY;
+uint8_t last_song CCM_MEMORY;
 #ifndef NO_VGA
 uint16_t color_ring[32] CCM_MEMORY;
 uint8_t color_ring_end CCM_MEMORY;
 uint8_t message_ring[16][32] CCM_MEMORY;
 uint8_t message_ring_end CCM_MEMORY;
 uint8_t stripe CCM_MEMORY;
-uint8_t last_song CCM_MEMORY;
 
 static inline void push_color(uint16_t c)
 {
@@ -191,8 +191,10 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
 
 void load_next_file()
 {
+    #ifndef NO_VGA
     push_color(RGB(100,100,100));
     push_message("requesting next file");
+    #endif
     song_pos = 0;
 
     music_on = 0;
@@ -253,9 +255,9 @@ void load_next_file()
 void game_init()
 {
     time_passed = 0;
-    font_init();
     last_song = 0;
     #ifndef NO_VGA
+    font_init();
     message_ring_end = 15;
     stripe = 0;
     #endif

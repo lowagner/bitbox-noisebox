@@ -4,8 +4,13 @@
 USE_SDCARD = 1 # comment out to get no wav files
 
 NAME = noisebox
-GAME_C_FILES = font.c main.c
-GAME_H_FILES = font.h
+GAME_C_FILES = main.c
+GAME_H_FILES =
+
+ifndef NO_VGA
+GAME_C_FILES += font.c
+GAME_H_FILES += font.h
+endif
 
 GAME_C_OPTS = -DVGAMODE_320 -DBITBOX_SAMPLERATE=16000 -DBITBOX_SNDBUF_LEN=1066
 
