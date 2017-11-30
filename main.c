@@ -169,7 +169,9 @@ void list_music() // adapted from list_roms from bitbox/2nd_boot
     get_file_index();
 
     FRESULT res;
+    char lfname[256];
     FILINFO fno;
+    fno.lfname = lfname;
     DIR dir;
 
     char *fn;   /* This function is assuming non-Unicode cfg. */
